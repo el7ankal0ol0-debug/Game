@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Healthy Lungs Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #2c3e50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            max-width: 100%;
+        }
+
+        canvas {
+            background: #87CEEB; 
+            border: 4px solid #fff;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* واجهة النهاية الأنيقة (الخسارة أو الفوز) */
+        #game-over-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 11px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        #game-over-screen h1 {
+            color: #ff4757;
+            font-size: 45px;
+            margin: 0 0 10px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        #reason-text {
+            font-size: 22px;
+            color: #eceff1;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-align: center;
+            padding: 0 20px;
+            line-height: 1.5;
+        }
+
+        #score-text {
+            font-size: 24px;
+            color: #ffd32a;
+            margin-bottom: 30px;
+            font-weight: bold;
+        }
+
+        #restart-btn {
+            background: #2ed573;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(46, 213, 115, 0.4);
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        #restart-btn:hover {
+            background: #26af5f;
+            transform: scale(1.05);
+        }
+
+        /* أزرار التحكم الدائرية للموبايل */
+        .mobile-controls {
+            display: flex;
+            justify-content: space-gap;
+            gap: 40px;
+            margin-top: 25px;
+        }
+
+        .btn-control {
+            width: 75px;
+            height: 75px;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            background: #34495e;
+            color: white;
+            font-size: 30px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 6px 10px rgba(0,0,0,0.3);
+            transition: transform 0.1s, background 0.1s;
+            touch-action: manipulation;
+        }
+
+        .btn-control:active {
+            transform: scale(0.9);
+            background: #1abc9c;
+        }
+
+        #jump-btn { border-color: #ffd32a; }
+        #duck-btn { border-color: #2ecc71; }
+
+        .hint {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #bdc3c7;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="game-over-screen">
+            <h1 id="screen-title">Game Over</h1>
+            <p id="reason-text">You were harmed!</p>
+            <p id="score-text">Final Score: 0</p>
+            <button id="restart-btn" onclick="resetGame()">Play Again</button>
+        </div>
+        
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
+
+    <div class="mobile-controls">
+        <div id="jump-btn" class="btn-control">↑</div>
+        <div id="duck-btn" class="btn-control">↓</div>
+    </div>
+
+    <div class="hint">Keyboard: Use Up/Down Arrow keys</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const gameOverScreen = document.getElementById("game-over-screen");
+const screenTitle = document.getElementById("screen-title");
+const reasonText = document.getElementById("reason-text");
+const scoreText = document.getElementById("score-text");
+
+let lives = 3;
+let score = 0;
+let gameOver = false;
+let gameSpeed = 7; 
+let obstacles = [];
+let spawnTimer = 0;
+
+// متغيرات كائن باب الفوز
+let doorSpawned = false;
+let doorX = canvas.width;
+const doorWidth = 60;
+const doorHeight = 90;
+
+const lungs = {
+    x: 100,
+    y: 300,
+    width: 60,
+    height: 70,
+    normalHeight: 70,
+    duckHeight: 35,
+    velocityY: 0,
+    gravity: 0.8, 
+    jumpForce: -15, 
+    isGrounded: true,
+    isDucking: false
+};
+
+const keys = {};
+window.addEventListener("keydown", (e) => {
+    keys[e.code] = true;
+    if(["ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => keys[e.code] = false);
+
+const jumpBtn = document.getElementById("jump-btn");
+const duckBtn = document.getElementById("duck-btn");
+
+jumpBtn.addEventListener("touchstart", (e) => { e.preventDefault(); keys["ArrowUp"] = true; });
+jumpBtn.addEventListener("touchend", () => keys["ArrowUp"] = false);
+jumpBtn.addEventListener("mousedown", () => keys["ArrowUp"] = true);
+jumpBtn.addEventListener("mouseup", () => keys["ArrowUp"] = false);
+
+duckBtn.addEventListener("touchstart", (e) => { e.preventDefault(); keys["ArrowDown"] = true; });
+duckBtn.addEventListener("touchend", () => keys["ArrowDown"] = false);
+duckBtn.addEventListener("mousedown", () => keys["ArrowDown"] = true);
+duckBtn.addEventListener("mouseup", () => keys["ArrowDown"] = false);
+
+function playGameOverSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.6);
+    } catch(e) { console.log("Audio error"); }
+}
+
+function playWinSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const notes = [261.63, 329.63, 392.00, 523.25]; 
+        notes.forEach((freq, index) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime + index * 0.15);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime + index * 0.15);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + index * 0.15 + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(audioCtx.currentTime + index * 0.15);
+            osc.stop(audioCtx.currentTime + index * 0.15 + 0.3);
+        });
+    } catch(e) { console.log("Audio error"); }
+}
+
+function resetGame() {
+    lives = 3;
+    score = 0;
+    gameOver = false;
+    gameSpeed = 7; 
+    obstacles = [];
+    doorSpawned = false;
+    doorX = canvas.width;
+    lungs.y = 300;
+    lungs.velocityY = 0;
+    lungs.isDucking = false;
+    lungs.height = lungs.normalHeight;
+    gameOverScreen.style.display = "none";
+    screenTitle.style.color = "#ff4757";
+    animate();
+}
+
+function spawnObstacle() {
+    if (score >= 3900) return;
+
+    const type = Math.random() > 0.5 ? "smoke" : "radiation";
+    if (type === "smoke") {
+        obstacles.push({ type: "smoke", x: canvas.width, y: 340, width: 60, height: 20 });
+    } else {
+        // عقبة الإشعاع بحجم متناسق 45x45
+        obstacles.push({ type: "radiation", x: canvas.width, y: 265, width: 45, height: 45 });
+    }
+}
+
+function update() {
+    if (gameOver) return;
+
+    if (score < 3500) {
+        score++;
+    } else if (!doorSpawned) {
+        doorSpawned = true;
+    }
+
+    if (keys["ArrowUp"] && lungs.isGrounded && !lungs.isDucking) {
+        lungs.velocityY = lungs.jumpForce;
+        lungs.isGrounded = false;
+    }
+
+    if (keys["ArrowDown"] && lungs.isGrounded) {
+        lungs.isDucking = true;
+        lungs.height = lungs.duckHeight;
+        lungs.y = 370 - lungs.duckHeight; 
+    } else {
+        lungs.isDucking = false;
+        lungs.height = lungs.normalHeight;
+        if (lungs.isGrounded) lungs.y = 370 - lungs.normalHeight;
+    }
+
+    lungs.y += lungs.velocityY;
+    if (!lungs.isGrounded) lungs.velocityY += lungs.gravity;
+
+    if (lungs.y >= 370 - lungs.height && !lungs.isDucking) {
+        lungs.y = 370 - lungs.height;
+        lungs.velocityY = 0;
+        lungs.isGrounded = true;
+    }
+
+    spawnTimer++;
+    if (spawnTimer > Math.max(60, 120 - gameSpeed * 5)) { 
+        spawnObstacle();
+        spawnTimer = 0;
+    }
+
+    if (score < 4000) {
+        gameSpeed += 0.005;
+    }
+
+    if (doorSpawned) {
+        doorX -= gameSpeed * 0.7; 
+
+        if (
+            lungs.x < doorX + doorWidth &&
+            lungs.x + lungs.width > doorX &&
+            lungs.y < 370 && 
+            lungs.y + lungs.height > 280
+        ) {
+            gameOver = true;
+            playWinSound();
+            screenTitle.innerText = "Victory!";
+            screenTitle.style.color = "#2ed573";
+            reasonText.innerHTML = "لقد عدت للمنزل بسلام!<br>You returned home safely! 🏠";
+            scoreText.innerText = `Final Score: ${score}`;
+            gameOverScreen.style.display = "flex";
+            return;
+        }
+    }
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        let obs = obstacles[i];
+        obs.x -= gameSpeed;
+
+        if (obs.x + obs.width < 0) {
+            obstacles.splice(i, 1);
+            continue;
+        }
+
+        if (
+            lungs.x < obs.x + obs.width &&
+            lungs.x + lungs.width > obs.x &&
+            lungs.y < obs.y + obs.height &&
+            lungs.y + lungs.height > obs.y
+        ) {
+            lives--;
+            
+            if (navigator.vibrate) {
+                navigator.vibrate(200); 
+            }
+
+            let lastHarmedBy = obs.type;
+            obstacles.splice(i, 1); 
+
+            if (lives <= 0) {
+                gameOver = true;
+                playGameOverSound();
+                screenTitle.innerText = "Game Over";
+                screenTitle.style.color = "#ff4757";
+                if (lastHarmedBy === "smoke") {
+                    reasonText.innerHTML = "You lost because of the cigarette smoke!<br>Take care of your lungs next time. 🚭";
+                } else {
+                    reasonText.innerHTML = "You lost because of the radiation!<br>Evade the high dangers safely. ☢️";
+                }
+                
+                scoreText.innerText = `Final Score: ${score}`;
+                gameOverScreen.style.display = "flex";
+            }
+        }
+    }
+}
+
+// دالة مخصصة لرسم مجسمات بكسل حادة وحقيقية
+function drawPixelSprite(type, x, y, w, h) {
+    if (type === "lung") {
+        const lungGrid = [
+            [0,0,2,2,0,0,2,2,0,0],
+            [0,2,1,1,2,2,1,1,2,0],
+            [2,1,1,1,1,1,1,1,1,2],
+            [2,1,3,1,1,1,1,3,1,2], 
+            [2,1,1,1,1,1,1,1,1,2],
+            [2,1,1,3,3,3,3,1,1,2], 
+            [2,1,1,1,1,1,1,1,1,2],
+            [0,2,1,1,2,2,1,1,2,0],
+            [0,2,1,2,0,0,2,1,2,0],
+            [0,0,2,0,0,0,0,2,0,0]
+        ];
+        
+        const px = w / 10;
+        const py = h / 10;
+        
+        for (let r = 0; r < 10; r++) {
+            for (let c = 0; c < 10; c++) {
+                if (lungGrid[r][c] === 1) ctx.fillStyle = "#ff7979";
+                else if (lungGrid[r][c] === 2) ctx.fillStyle = "#eb4d4b";
+                else if (lungGrid[r][c] === 3) ctx.fillStyle = "#2c3e50";
+                else continue;
+                ctx.fillRect(x + c * px, y + r * py, px + 0.5, py + 0.5);
+            }
+        }
+    } 
+    else if (type === "smoke") {
+        const cigaretteGrid = [
+            [5,5,5,5,5,5,5,5,5,5,5,0],
+            [1,1,1,1,2,2,2,2,2,2,4,3],
+            [1,1,1,1,2,2,2,2,2,2,4,3],
+            [5,5,5,5,5,5,5,5,5,5,5,0]
+        ];
+        
+        const px = w / 12;
+        const py = h / 4;
+        
+        for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 12; c++) {
+                if (cigaretteGrid[r][c] === 1) ctx.fillStyle = "#f39c12"; 
+                else if (cigaretteGrid[r][c] === 2) ctx.fillStyle = "#f1f2f6"; 
+                else if (cigaretteGrid[r][c] === 3) ctx.fillStyle = "#ced6e0"; 
+                else if (cigaretteGrid[r][c] === 4) ctx.fillStyle = "#ff4757"; 
+                else if (cigaretteGrid[r][c] === 5) ctx.fillStyle = "#2f3542"; 
+                else continue;
+                ctx.fillRect(x + c * px, y + r * py, px + 0.5, py + 0.5);
+            }
+        }
+    } 
+    else if (type === "radiation") {
+        // مصفوفة بكسل مطورة بدقة 12x12 لتمثيل رمز المروحة الإشعاعية النووية بدقة متناهية
+        // 1: أصفر مشع، 2: أسود/داكن (الرمز الداخلي والحدود)، 0: شفاف
+        const radGrid = [
+            [0,0,2,2,2,2,2,2,2,2,0,0],
+            [0,2,1,1,2,2,2,2,1,1,2,0],
+            [2,1,2,2,2,2,2,2,2,2,1,2],
+            [2,1,2,2,2,0,0,2,2,2,1,2],
+            [2,1,1,2,0,2,2,0,2,1,1,2],
+            [2,1,1,1,2,2,2,2,1,1,1,2],
+            [2,1,1,1,2,2,2,2,1,1,1,2],
+            [2,1,1,2,0,2,2,0,2,1,1,2],
+            [2,1,2,2,2,0,0,2,2,2,1,2],
+            [2,1,2,2,2,2,2,2,2,2,1,2],
+            [0,2,1,1,2,2,2,2,1,1,2,0],
+            [0,0,2,2,2,2,2,2,2,2,0,0]
+        ];
+        
+        const px = w / 12;
+        const py = h / 12;
+        
+        for (let r = 0; r < 12; r++) {
+            for (let c = 0; c < 12; c++) {
+                if (radGrid[r][c] === 1) ctx.fillStyle = "#ffd32a"; // أصفر فاقع ومميز
+                else if (radGrid[r][c] === 2) ctx.fillStyle = "#2c3e50"; // لون داكن للرمز والحدود دقة البكسل
+                else continue;
+                ctx.fillRect(x + c * px, y + r * py, px + 0.5, py + 0.5);
+            }
+        }
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#27ae60";
+    ctx.fillRect(0, 370, canvas.width, 30);
+
+    if (doorSpawned) {
+        ctx.fillStyle = "#d35400"; 
+        ctx.fillRect(doorX, 280, doorWidth, doorHeight);
+        ctx.fillStyle = "#e67e22"; 
+        ctx.fillRect(doorX + 5, 285, doorWidth - 10, doorHeight - 5);
+        ctx.fillStyle = "#f1c40f"; 
+        ctx.beginPath();
+        ctx.arc(doorX + doorWidth - 12, 325, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // رسم الرئة البكسل
+    drawPixelSprite("lung", lungs.x, lungs.y, lungs.width, lungs.height);
+
+    // رسم العقبات (السيجارة البكسل وعلامة الإشعاع البكسل الجديدة)
+    obstacles.forEach(obs => {
+        if (obs.type === "smoke") {
+            drawPixelSprite("smoke", obs.x, obs.y, obs.width, obs.height);
+        } else if (obs.type === "radiation") {
+            drawPixelSprite("radiation", obs.x, obs.y, obs.width, obs.height);
+        }
+    });
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.fillRect(10, 10, 160, 40);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(10, 10, 160, 40);
+    
+    ctx.font = "22px Arial";
+    let heartString = "";
+    for(let h=0; h<3; h++) {
+        heartString += h < lives ? "❤️" : "🖤"; 
+    }
+    ctx.fillText(heartString, 25, 38);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 20px 'Segoe UI', Arial";
+    ctx.shadowColor = "black";
+    ctx.shadowBlur = 4;
+    ctx.fillText(`SCORE: ${score}`, canvas.width - 150, 38);
+    ctx.shadowBlur = 0; 
+}
+
+function animate() {
+    update();
+    draw();
+    if (!gameOver) {
+        requestAnimationFrame(animate);
+    }
+}
+
+animate();
+</script>
+
+</body>
+</html>
