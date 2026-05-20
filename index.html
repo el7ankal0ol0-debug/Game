@@ -180,11 +180,12 @@ let gameSpeed = 7;
 let obstacles = [];
 let spawnTimer = 0;
 
-// متغيرات كائن باب الفوز
+// تعديل متغيرات كائن باب الفوز ليكون عملاقاً وممتداً للأعلى
 let doorSpawned = false;
 let doorX = canvas.width;
-const doorWidth = 60;
-const doorHeight = 90;
+const doorWidth = 90;       // زيادة عرض الباب ليكون أوضح
+const doorHeight = 370;     // جعل الارتفاع يغطي الشاشة بالكامل من الأرض إلى الأعلى لمنع القفز تماماً
+const doorY = 0;            // يبدأ من أعلى الشاشة وينزل للأرض
 
 const lungs = {
     x: 100,
@@ -280,7 +281,6 @@ function spawnObstacle() {
     if (type === "smoke") {
         obstacles.push({ type: "smoke", x: canvas.width, y: 340, width: 60, height: 20 });
     } else {
-        // عقبة الإشعاع بحجم متناسق 45x45
         obstacles.push({ type: "radiation", x: canvas.width, y: 265, width: 45, height: 45 });
     }
 }
@@ -331,11 +331,12 @@ function update() {
     if (doorSpawned) {
         doorX -= gameSpeed * 0.7; 
 
+        // تحديث شروط التصادم لتشمل كامل ارتفاع وعرض الباب الجديد
         if (
             lungs.x < doorX + doorWidth &&
             lungs.x + lungs.width > doorX &&
-            lungs.y < 370 && 
-            lungs.y + lungs.height > 280
+            lungs.y < doorY + doorHeight && 
+            lungs.y + lungs.height > doorY
         ) {
             gameOver = true;
             playWinSound();
@@ -390,7 +391,6 @@ function update() {
     }
 }
 
-// دالة مخصصة لرسم مجسمات بكسل حادة وحقيقية
 function drawPixelSprite(type, x, y, w, h) {
     if (type === "lung") {
         const lungGrid = [
@@ -443,8 +443,6 @@ function drawPixelSprite(type, x, y, w, h) {
         }
     } 
     else if (type === "radiation") {
-        // مصفوفة بكسل مطورة بدقة 12x12 لتمثيل رمز المروحة الإشعاعية النووية بدقة متناهية
-        // 1: أصفر مشع، 2: أسود/داكن (الرمز الداخلي والحدود)، 0: شفاف
         const radGrid = [
             [0,0,2,2,2,2,2,2,2,2,0,0],
             [0,2,1,1,2,2,2,2,1,1,2,0],
@@ -465,8 +463,8 @@ function drawPixelSprite(type, x, y, w, h) {
         
         for (let r = 0; r < 12; r++) {
             for (let c = 0; c < 12; c++) {
-                if (radGrid[r][c] === 1) ctx.fillStyle = "#ffd32a"; // أصفر فاقع ومميز
-                else if (radGrid[r][c] === 2) ctx.fillStyle = "#2c3e50"; // لون داكن للرمز والحدود دقة البكسل
+                if (radGrid[r][c] === 1) ctx.fillStyle = "#ffd32a"; 
+                else if (radGrid[r][c] === 2) ctx.fillStyle = "#2c3e50"; 
                 else continue;
                 ctx.fillRect(x + c * px, y + r * py, px + 0.5, py + 0.5);
             }
@@ -480,21 +478,22 @@ function draw() {
     ctx.fillStyle = "#27ae60";
     ctx.fillRect(0, 370, canvas.width, 30);
 
+    // إعادة رسم الباب الجديد بحجمه العملاق المتناسق
     if (doorSpawned) {
         ctx.fillStyle = "#d35400"; 
-        ctx.fillRect(doorX, 280, doorWidth, doorHeight);
+        ctx.fillRect(doorX, doorY, doorWidth, doorHeight);
         ctx.fillStyle = "#e67e22"; 
-        ctx.fillRect(doorX + 5, 285, doorWidth - 10, doorHeight - 5);
+        ctx.fillRect(doorX + 6, doorY, doorWidth - 12, doorHeight);
+        
+        // رسم مقبض الباب في مكان مناسب للمستخدم
         ctx.fillStyle = "#f1c40f"; 
         ctx.beginPath();
-        ctx.arc(doorX + doorWidth - 12, 325, 5, 0, Math.PI * 2);
+        ctx.arc(doorX + doorWidth - 15, 325, 6, 0, Math.PI * 2);
         ctx.fill();
     }
 
-    // رسم الرئة البكسل
     drawPixelSprite("lung", lungs.x, lungs.y, lungs.width, lungs.height);
 
-    // رسم العقبات (السيجارة البكسل وعلامة الإشعاع البكسل الجديدة)
     obstacles.forEach(obs => {
         if (obs.type === "smoke") {
             drawPixelSprite("smoke", obs.x, obs.y, obs.width, obs.height);
