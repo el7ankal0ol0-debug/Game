@@ -1887,113 +1887,85 @@ loop();
 window.addEventListener('resize',()=>{ sizeCanvas(); scaleLung(); initTrees(); });
 </script>
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, query, onValue, get, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAckunQUs9bPhZpIofTG9DBfgsv5RWwiAI",
-  authDomain: "lungrunner-2d119.firebaseapp.com",
-  databaseURL: "https://lungrunner-2d119-default-rtdb.firebaseio.com",
-  projectId: "lungrunner-2d119",
-  storageBucket: "lungrunner-2d119.firebasestorage.app",
-  messagingSenderId: "506677064938",
-  appId: "1:506677064938:web:c1943918035cd715465393"
-};
+  const firebaseConfig = {
+    apiKey: "AIzaSyAckunQUs9bPhZpIofTG9DBfgsv5RWwiAI",
+    authDomain: "lungrunner-2d119.firebaseapp.com",
+    databaseURL: "https://lungrunner-2d119-default-rtdb.firebaseio.com",
+    projectId: "lungrunner-2d119",
+    storageBucket: "lungrunner-2d119.firebasestorage.app",
+    messagingSenderId: "506677064938",
+    appId: "1:506677064938:web:c1943918035cd715465393"
+  };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
 
-// ── LEADERBOARD: Upsert logic (no duplicates) ──
-function sanitizeKey(name) {
-  return name.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_').substring(0, 30);
-}
+  // 1. قراءة وعرض الـ Leaderboard وتحديثه تلقائياً
+  const scoresRef = query(ref(db, 'scores'), orderByChild('score'), limitToLast(10));
 
-window.loadLeaderboard = function() {
-  const scoresRef = ref(db, 'scores_v2');
-  const tbody = document.getElementById('leaderboard-tbody');
-  
-  if(tbody) tbody.innerHTML = '<tr><td colspan="3" style="padding:10px;">جاري التحميل...</td></tr>';
-  
   onValue(scoresRef, (snapshot) => {
+    const tbody = document.getElementById('leaderboard-tbody');
     if(!tbody) return;
+    
     tbody.innerHTML = '';
-    
     const scores = [];
-    snapshot.forEach(child => scores.push(child.val()));
     
-    // 1. فلترة التكرار: نحتفظ بأعلى سكور فقط لكل لاعب
-    const uniquePlayersMap = new Map();
-    scores.forEach(player => {
-        if (!uniquePlayersMap.has(player.name) || player.score > uniquePlayersMap.get(player.name).score) {
-            uniquePlayersMap.set(player.name, player);
-        }
+    snapshot.forEach((child) => {
+      scores.push(child.val());
     });
 
-    // 2. الترتيب من الأعلى للأقل وقص أول 10 لاعبين
-    const top10 = Array.from(uniquePlayersMap.values())
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
+    scores.sort((a, b) => b.score - a.score);
 
-    // 3. عرض النتائج في لوحة الصدارة
-    if(top10.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3" style="padding:10px;color:#94a3b8;">لا توجد سجلات بعد.. كن أول الفائزين!</td></tr>';
+    if(scores.length === 0) {
+       tbody.innerHTML = '<tr><td colspan="3" style="padding:10px; color:#94a3b8;">لا توجد سجلات بعد.. كن أول الفائزين!</td></tr>';
     } else {
-      top10.forEach((item, index) => {
-        const rankIcon = index === 0 ? "🥇" : (index === 1 ? "🥈" : (index === 2 ? "🥉" : `${index + 1}`));
-        const avatarEmoji = item.avatarId === 2 ? "🫁♀" : "🫁";
-        tbody.innerHTML += `
-            <tr style="border-bottom:1px solid #1e293b;">
-                <td style="padding:10px;font-weight:bold;">${rankIcon}</td>
-                <td style="padding:10px;">${avatarEmoji} ${item.name || 'Unknown'}</td>
-                <td style="padding:10px;color:#fbbf24;font-weight:bold;">${item.score}</td>
+       scores.forEach((item, index) => {
+          let rankIcon = index === 0 ? "🥇" : (index === 1 ? "🥈" : (index === 2 ? "🥉" : `${index+1}`));
+          let row = `
+            <tr style="border-bottom: 1px solid #1e293b;">
+              <td style="padding:10px; font-weight:bold;">${rankIcon}</td>
+              <td style="padding:10px;">${item.avatar || '🫁'} ${item.name || 'مجهول'}</td>
+              <td style="padding:10px; color:#fbbf24; font-weight:bold;">${item.score}</td>
             </tr>`;
-      });
+          tbody.innerHTML += row;
+       });
     }
-  }, { onlyOnce: true });
-};
+  });
 
-let lastSavedTime = 0;
-window.saveScoreToFirebase = async function(score) {
-  const now = Date.now();
-  if(now - lastSavedTime < 3000) { console.log("🛡️ Duplicate blocked"); return; }
-  lastSavedTime = now;
-  
-  const savedData = localStorage.getItem('lungRunnerProfile');
-  if(!savedData) return;
-  
-  const profile = JSON.parse(savedData);
-  const key = sanitizeKey(profile.name);
-  const playerRef = ref(db, `scores_v2/${key}`);
-  
-  try {
-    const snap = await get(playerRef);
-    if(snap.exists()) {
-      const existing = snap.val();
-      if(Math.floor(score) > existing.score) {
-        await set(playerRef, {
-            name: profile.name, 
-            avatarId: profile.avatarId || 1, 
-            score: Math.floor(score), 
-            timestamp: Date.now()
-        });
-        console.log("✅ Score updated (higher score)");
-      } else {
-        console.log("ℹ️ Existing score is higher, no update");
-      }
-    } else {
-      await set(playerRef, {
-          name: profile.name, 
-          avatarId: profile.avatarId || 1, 
-          score: Math.floor(score), 
-          timestamp: Date.now()
-      });
-      console.log("✅ New player added to leaderboard");
+  // 2. صمام أمان زمني لمنع التكرار نهائياً (مبني لحماية قاعدة البيانات)
+  let lastSavedTime = 0;
+
+  window.saveScoreToFirebase = function(score) {
+    const now = Date.now();
+    
+    // ✋ إذا كانت المسافة بين المحاولة الحالية والمحاولة السابقة أقل من 3 ثوانٍ، احظرها فوراً ولا ترسلها
+    if (now - lastSavedTime < 3000) {
+        console.log("🛡️ تم رصد محاولة مكررة؛ تم حظر الإرسال لحماية الليدربورد من التكرار.");
+        return;
     }
-  } catch(err) {
-    console.error("Firebase error:", err);
-  }
-};
+    // تحديث وقت آخر إرسال ناجح
+    lastSavedTime = now; 
+
+    console.log("محاولة إرسال السكور...");
+    const savedData = localStorage.getItem('lungRunnerProfile');
+    if (!savedData) return;
+    
+    const profile = JSON.parse(savedData);
+    push(ref(db, 'scores'), { 
+      name: profile.name, 
+      avatar: profile.avatar,
+      score: Math.floor(score),
+      timestamp: Date.now()
+    }).then(() => {
+        console.log("نجاح! تم إرسال السكور الحقيقي مرة واحدة فقط.");
+    }).catch(err => {
+        console.error("خطأ في الاتصال بقاعدة البيانات:", err);
+    });
+  };
 </script>
 
 </body>
-    </html>
+</html>
