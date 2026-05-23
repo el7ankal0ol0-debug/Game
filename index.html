@@ -177,6 +177,9 @@ body{overflow:hidden;}
   </div>
   <h1 class="game-main-title">LUNG CARE<br>RUNNER</h1>
   <div class="menu-buttons">
+    <button onclick="cleanUpDuplicates()" style="background: red; color: white; padding: 10px; margin: 20px;">
+    تنظيف قاعدة البيانات (دوس مرة واحدة)
+</button>
     <button id="btn-start-game" class="huge-btn" onclick="startGameFromMenu()">▶ PLAY NOW</button>
     <button class="menu-btn" onclick="showPopup('how-to-play-popup')">📖 How to Play</button>
     <button class="menu-btn" onclick="showPopup('history-popup')">📋 Match History</button>
@@ -1613,85 +1616,80 @@ loop();
 window.addEventListener('resize',()=>{ sizeCanvas(); scaleLung(); initTrees(); });
 </script>
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  // 1. استيراد دوال Firebase اللازمة
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js";
+  import { getFirestore, collection, doc, getDoc, setDoc, getDocs, deleteDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.11.1/firebase-firestore.js";
 
+  // 2. إعدادات المشروع (ضع بياناتك هنا)
   const firebaseConfig = {
-    apiKey: "AIzaSyAckunQUs9bPhZpIofTG9DBfgsv5RWwiAI",
-    authDomain: "lungrunner-2d119.firebaseapp.com",
-    databaseURL: "https://lungrunner-2d119-default-rtdb.firebaseio.com",
-    projectId: "lungrunner-2d119",
-    storageBucket: "lungrunner-2d119.firebasestorage.app",
-    messagingSenderId: "506677064938",
-    appId: "1:506677064938:web:c1943918035cd715465393"
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
   };
 
+  // 3. تشغيل Firebase
   const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
+  const db = getFirestore(app);
 
-  // 1. قراءة وعرض الـ Leaderboard وتحديثه تلقائياً
-  const scoresRef = query(ref(db, 'scores'), orderByChild('score'), limitToLast(10));
+  // 4. دالة حفظ السكور (تستخدم في اللعبة دائماً)
+  async function saveOrUpdateScore(playerName, newScore) {
+    const safePlayerName = playerName.trim();
+    const playerDocRef = doc(db, "scores", safePlayerName);
 
-  onValue(scoresRef, (snapshot) => {
-    const tbody = document.getElementById('leaderboard-tbody');
-    if(!tbody) return;
-    
-    tbody.innerHTML = '';
-    const scores = [];
-    
-    snapshot.forEach((child) => {
-      scores.push(child.val());
+    try {
+      const docSnap = await getDoc(playerDocRef);
+      if (docSnap.exists()) {
+        const currentScore = docSnap.data().score;
+        if (newScore > currentScore) {
+          await setDoc(playerDocRef, { name: safePlayerName, score: newScore });
+          console.log("تم تحديث السكور لأعلى قيمة.");
+        }
+      } else {
+        await setDoc(playerDocRef, { name: safePlayerName, score: newScore });
+        console.log("تم حفظ السكور الجديد.");
+      }
+    } catch (error) {
+      console.error("خطأ في حفظ البيانات: ", error);
+    }
+  }
+
+  // 5. دالة التنظيف (شغلها مرة واحدة من الكونسول أو بزرار مؤقت ثم احذفها)
+  async function cleanUpDuplicates() {
+    console.log("جاري البحث عن التكرارات...");
+    const querySnapshot = await getDocs(collection(db, "scores"));
+    let players = {};
+    let docsToDelete = [];
+
+    querySnapshot.forEach((document) => {
+      const data = document.data();
+      const name = data.name;
+      const score = data.score;
+      const id = document.id;
+
+      if (!players[name]) {
+        players[name] = { id: id, score: score };
+      } else {
+        if (score > players[name].score) {
+          docsToDelete.push(players[name].id);
+          players[name] = { id: id, score: score };
+        } else {
+          docsToDelete.push(id);
+        }
+      }
     });
 
-    scores.sort((a, b) => b.score - a.score);
-
-    if(scores.length === 0) {
-       tbody.innerHTML = '<tr><td colspan="3" style="padding:10px; color:#94a3b8;">لا توجد سجلات بعد.. كن أول الفائزين!</td></tr>';
-    } else {
-       scores.forEach((item, index) => {
-          let rankIcon = index === 0 ? "🥇" : (index === 1 ? "🥈" : (index === 2 ? "🥉" : `${index+1}`));
-          let row = `
-            <tr style="border-bottom: 1px solid #1e293b;">
-              <td style="padding:10px; font-weight:bold;">${rankIcon}</td>
-              <td style="padding:10px;">${item.avatar || '🫁'} ${item.name || 'مجهول'}</td>
-              <td style="padding:10px; color:#fbbf24; font-weight:bold;">${item.score}</td>
-            </tr>`;
-          tbody.innerHTML += row;
-       });
+    for (const id of docsToDelete) {
+      await deleteDoc(doc(db, "scores", id));
     }
-  });
+    console.log(`تم التنظيف! تم مسح ${docsToDelete.length} تكرار.`);
+  }
 
-  // 2. صمام أمان زمني لمنع التكرار نهائياً (مبني لحماية قاعدة البيانات)
-  let lastSavedTime = 0;
-
-  window.saveScoreToFirebase = function(score) {
-    const now = Date.now();
-    
-    // ✋ إذا كانت المسافة بين المحاولة الحالية والمحاولة السابقة أقل من 3 ثوانٍ، احظرها فوراً ولا ترسلها
-    if (now - lastSavedTime < 3000) {
-        console.log("🛡️ تم رصد محاولة مكررة؛ تم حظر الإرسال لحماية الليدربورد من التكرار.");
-        return;
-    }
-    // تحديث وقت آخر إرسال ناجح
-    lastSavedTime = now; 
-
-    console.log("محاولة إرسال السكور...");
-    const savedData = localStorage.getItem('lungRunnerProfile');
-    if (!savedData) return;
-    
-    const profile = JSON.parse(savedData);
-    push(ref(db, 'scores'), { 
-      name: profile.name, 
-      avatar: profile.avatar,
-      score: Math.floor(score),
-      timestamp: Date.now()
-    }).then(() => {
-        console.log("نجاح! تم إرسال السكور الحقيقي مرة واحدة فقط.");
-    }).catch(err => {
-        console.error("خطأ في الاتصال بقاعدة البيانات:", err);
-    });
-  };
+  // إتاحة الدوال للعمل في باقي ملفات الـ JS
+  window.saveOrUpdateScore = saveOrUpdateScore;
+  window.cleanUpDuplicates = cleanUpDuplicates;
 </script>
 </body>
 </html>
-
